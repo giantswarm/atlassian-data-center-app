@@ -1,0 +1,11 @@
+{{- if and (.Values.confluence.license) (.Values.confluence.license.secretName) -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.database.license.secretName }}
+  labels:
+    {{- include "confluence.labels" . | nindent 4 }}
+data:
+  {{ .Values.confluence.license.secretKey }}: {{ .Values.confluence.license.secretValue }}
+type: Opaque
+{{- end -}}

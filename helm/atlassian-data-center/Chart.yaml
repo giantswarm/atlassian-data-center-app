@@ -1,0 +1,22 @@
+apiVersion: v2
+appVersion: 0.14.0
+dependencies:
+- name: jira
+  repository: file://.
+  version: 0.14.0
+  condition: jira.enabled
+- name: confluence
+  repository: file://.
+  version: 0.14.0
+  condition: confluence.enabled
+description: Atlassian Data Center
+engine: gotpl
+home: https://github.com/giantswarm/atlassian-data-center-app
+icon: https://s.giantswarm.io/app-icons/1/png/default-app-light.png
+maintainers:
+- name: QuentinBisson
+  url: https://github.com/QuentinBisson
+name: atlassian-data-center-app
+sources:
+- https://github.com/giantswarm/atlassian-data-center-app
+version: 0.1.0
