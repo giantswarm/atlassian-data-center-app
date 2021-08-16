@@ -1,0 +1,11 @@
+{{- if and (.Values.jira.license) (.Values.jira.license.secretName) -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.database.license.secretName }}
+  labels:
+    {{- include "jira.labels" . | nindent 4 }}
+data:
+  {{ .Values.jira.license.secretKey }}: {{ .Values.jira.license.secretValue }}
+type: Opaque
+{{- end -}}

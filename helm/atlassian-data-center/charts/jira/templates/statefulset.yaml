@@ -1,0 +1,170 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "jira.fullname" . }}
+  labels:
+    {{- include "jira.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  serviceName: {{ include "jira.fullname" . }}
+  selector:
+    matchLabels:
+      {{- include "jira.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "jira.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "jira.serviceAccountName" . }}
+      terminationGracePeriodSeconds: 1
+      {{ if .Values.jira.securityContext.enabled }}
+      securityContext:
+        # This is intended to ensure that the shared-home volume is group-writeable by the GID used by the Jira container.
+        # However, this doesn't appear to work for NFS volumes due to a K8s bug: https://github.com/kubernetes/examples/issues/260
+        fsGroup: {{ .Values.jira.securityContext.gid }}
+        runAsUser: {{ .Values.jira.securityContext.uid }}
+      {{ end }}
+      initContainers:
+        {{- include "jira.additionalInitContainers" . | nindent 8 }}
+        {{- if .Values.volumes.sharedHome.nfsPermissionFixer.enabled }}
+        - name: nfs-permission-fixer
+          image: alpine
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 0 # make sure we run as root so we get the ability to change the volume permissions
+          volumeMounts:
+            - name: shared-home
+              mountPath: {{ .Values.volumes.sharedHome.nfsPermissionFixer.mountPath | quote }}
+              {{- if .Values.volumes.sharedHome.subPath }}
+              subPath: {{ .Values.volumes.sharedHome.subPath | quote }}
+              {{- end }}
+          command: ["sh", "-c", {{ include "jira.sharedHome.permissionFix.command" . | quote }}]
+        {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: {{ include "jira.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            {{ if .Values.ingress.https }}
+            - name: ATL_TOMCAT_SCHEME
+              value: "https"
+            - name: ATL_TOMCAT_SECURE
+              value: "true"
+            {{ end }}
+            {{ if .Values.jira.service.contextPath }}
+            - name: ATL_TOMCAT_CONTEXTPATH
+              value: {{ .Values.jira.service.contextPath | quote }}
+            {{ end }}
+            {{ if .Values.ingress.host }}
+            - name: ATL_PROXY_NAME
+              value: {{ .Values.ingress.host | quote }}
+            - name: ATL_PROXY_PORT
+              value: {{ include "jira.ingressPort" . | quote }}
+            {{ end }}
+            {{- include "jira.databaseEnvVars" . | nindent 12 }}
+            {{- include "jira.clusteringEnvVars" . | nindent 12 }}
+            {{ with .Values.jira.license.secretName }}
+            - name: JIRA_SETUP_LICENSE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: {{ $.Values.jira.license.secretKey }}
+            {{ end }}
+            - name: JIRA_SHARED_HOME
+              value: {{ .Values.volumes.sharedHome.mountPath | quote }}
+            - name: JVM_SUPPORT_RECOMMENDED_ARGS
+              valueFrom:
+                configMapKeyRef:
+                  key: additional_jvm_args
+                  name: {{ include "jira.fullname" . }}-jvm-config
+            - name: JVM_MINIMUM_MEMORY
+              valueFrom:
+                configMapKeyRef:
+                  key: min_heap
+                  name: {{ include "jira.fullname" . }}-jvm-config
+            - name: JVM_MAXIMUM_MEMORY
+              valueFrom:
+                configMapKeyRef:
+                  key: max_heap
+                  name: {{ include "jira.fullname" . }}-jvm-config
+            - name: JVM_RESERVED_CODE_CACHE_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  key: reserved_code_cache
+                  name: {{ include "jira.fullname" . }}-jvm-config
+            {{- include "jira.additionalEnvironmentVariables" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.jira.ports.http }}
+              protocol: TCP
+            - name: ehcache
+              containerPort: {{ .Values.jira.ports.ehcache }} 
+              protocol: TCP 
+            - name: ehcacheobject
+              containerPort: {{ .Values.jira.ports.ehcacheobject }}
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              port: {{ .Values.jira.ports.http }}
+              path: {{ .Values.jira.service.contextPath }}/status
+            initialDelaySeconds: {{ .Values.jira.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.jira.readinessProbe.periodSeconds }}
+            failureThreshold: {{ .Values.jira.readinessProbe.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              port: {{ .Values.jira.ports.http }}
+              path: {{ .Values.jira.service.contextPath }}/status
+            initialDelaySeconds: {{ .Values.jira.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.jira.livenessProbe.periodSeconds }}
+            failureThreshold: {{ .Values.jira.livenessProbe.failureThreshold }}
+          {{- with .Values.jira.resources.container }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: {{ include "jira.fullname" . }}-config
+              mountPath: {{ .Values.volumes.localHome.mountPath }}/jira-config.properties
+              subPath: jira-config.properties
+            
+            {{- include "jira.volumeMounts" . | nindent 12 }}
+            {{- include "jira.additionalVolumeMounts" . | nindent 12 }}
+            {{- include "jira.additionalLibraries" . | nindent 12 }}
+            {{- include "jira.additionalBundledPlugins" . | nindent 12 }}
+            {{- range $i, $n := .Values.additionalFiles }}
+            - name: {{ .name }}-{{$i}}
+              mountPath: {{ .mountPath }}/{{ .key }}
+              subPath: {{ .key }}
+            {{ end }}
+        {{- include "fluentd.container" . | nindent 8 }}
+        {{- include "jira.additionalContainers" . | nindent 8 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+      {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: {{ include "jira.fullname" . }}-config
+          configMap:
+            name: {{ include "jira.fullname" . }}-config
+        {{- range $i, $n := .Values.additionalFiles }}
+        - name: {{ .name }}-{{$i}}
+          {{ .type }}:
+            {{ if hasPrefix .type "secret" }}{{ .type}}Name{{ else }}name{{ end }}: {{ .name }}
+            items:
+              - key: {{ .key }}
+                path: {{ .key }}
+        {{ end }}
+        {{ include "jira.volumes" . | nindent 8 }}
+        {{ include "fluentd.config.volume" . | nindent 8 }}
+  {{ include "jira.volumeClaimTemplates" . | nindent 2 }}
