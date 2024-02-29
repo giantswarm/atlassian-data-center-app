@@ -1,6 +1,9 @@
 [![CircleCI](https://dl.circleci.com/status-badge/img/gh/giantswarm/atlassian-data-center-app/tree/master.svg?style=svg)](https://dl.circleci.com/status-badge/redirect/gh/giantswarm/atlassian-data-center-app/tree/master)
 
-# atlassian-data-center chart
+# ⛔️DEPRECATED atlassian-data-center chart
+
+This is repository is no longer actively maintained or updated.
+
 
 Giant Swarm offers a atlassian-data-center App which can be installed in workload clusters.
 Here we define the atlassian-data-center chart with its templates and default configuration.
